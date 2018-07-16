@@ -50,4 +50,6 @@ java -jar build/libs/sse-0.1-all.jar --bootstrap=$SOURCE://localhost
 #### Running the SSE consumer
 java -cp build/libs/sse-0.1-all.jar io.streamz.sse.consumer.Main
 
+#### Running the SSE consumer starting from a message id
+java -cp build/libs/sse-0.1-all.jar io.streamz.sse.consumer.Main -f messageId
 
