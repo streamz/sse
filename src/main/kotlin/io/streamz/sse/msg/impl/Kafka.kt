@@ -46,16 +46,18 @@ object Kafka : WithLogging() {
                 }
                 c.resume(partition)
                 from.map { f ->
-                    c.seek(TopicPartition(topic, 0), f.value.toLong() + 1)
+                    // see documentation on seek
+                    c.seek(TopicPartition(topic, 0), f.value.toLong())
                 }
-                val m = c.poll(0).fold(emptyList<Msg>()) { a, b ->
+                val m = c.poll(100).fold(emptyList<Msg>()) { a, b ->
                     a + Msg(Id(b.offset().toString()), b.value())
                 }
-                c.pause(partition)
-                return if (m.isEmpty()) Optional.empty() else Optional.of(
-                    Pair(m, { b ->
+                val ret = Optional.of(
+                    Pair<List<Msg>, (Boolean) -> Unit>(m, { b ->
                         if (b) c.commitSync()
                     }))
+                c.pause(partition)
+                return if (m.isEmpty()) Optional.empty() else ret
             }
 
             // assumes a single partition
@@ -69,13 +71,14 @@ object Kafka : WithLogging() {
                 }
                 c.resume(partition)
                 from.map { f ->
-                    c.seek(TopicPartition(topic, 0), f.value.toLong() + 1)
+                    // see documentation on seek
+                    c.seek(TopicPartition(topic, 0), f.value.toLong())
                 }
-                val m = c.poll(0)
-                c.pause(partition)
+                val m = c.poll(100)
                 m.forEach { f ->
                     if (cb(Msg(Id(f.offset().toString()), f.value()))) c.commitAsync()
                 }
+                c.pause(partition)
             }
 
             override fun close() {
