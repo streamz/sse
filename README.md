@@ -40,6 +40,9 @@ docker-compose exec kafka  kafka-topics --create --topic $KAFKA_TOPIC_NAME --par
 ##### consumer long poll
 http://localhost:8000/poll?topic=test
 
+##### consumer sse (subscribe)
+http://localhost:8000/sub?topic=test
+
 ##### producer
 http://localhost:8000/post?topic=test
 
