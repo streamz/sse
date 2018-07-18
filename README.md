@@ -48,6 +48,7 @@ http://localhost:8000/post?topic=test
 
 #### Running the SSE service
 export SOURCE=pulsar
+
 java -jar build/libs/sse-0.1-all.jar --bootstrap=$SOURCE://localhost
 
 #### Running the SSE producer
