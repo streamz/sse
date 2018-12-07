@@ -1,10 +1,9 @@
 package io.streamz.sse.service
 
-import io.streamz.sse.msg.Msg
-import io.streamz.sse.msg.Subscription
-import io.streamz.sse.msg.impl.Kafka
+import arrow.core.None
+import arrow.core.Some
+import io.streamz.sse.msg.*
 import io.streamz.sse.msg.impl.Pulsar
-import io.streamz.sse.msg.impl.Redis
 import io.undertow.Handlers
 import io.undertow.Handlers.path
 import io.undertow.Undertow
@@ -14,35 +13,19 @@ import io.undertow.util.AttachmentKey
 import io.undertow.util.Headers
 import io.undertow.util.StringReadChannelListener
 import java.io.IOException
-import java.util.*
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 class Server(argv: Args) : AutoCloseable {
-    private val protocol = argv.bootstrap.substringBefore("://").toLowerCase()
     private val hostPort = argv.bootstrap.substringAfter("://")
-    private val consumer = {
-        when (protocol) {
-            "redis" -> Optional.of(Redis.consumer(hostPort))
-            "kafka" -> Optional.of(Kafka.consumer(hostPort))
-            "pulsar" -> Optional.of(Pulsar.consumer(hostPort))
-            else -> Optional.empty()
-        }
-    }().get()
-
-    private val producer = {
-        when (protocol) {
-            "redis" -> Optional.of(Redis.producer(hostPort) { s -> s })
-            "kafka" -> Optional.of(Kafka.producer(hostPort) { s -> s })
-            "pulsar" -> Optional.of(Pulsar.producer<String>(hostPort) { s -> s })
-            else -> Optional.empty()
-        }
-    }().get()
+    private val consumer = Pulsar.consumer(hostPort)
+    private val producer = Pulsar.producer<String>(hostPort) { s -> s }
 
     private val consumerH = BlockingHandler(HttpHandler { e ->
         // get some data if available
         e.queryParameters["topic"]?.map { topic ->
-            val o = consumer.consume(topic)
+            val name = SubscriptionName(e.queryParameters["sname"]?.first!!)
+            val o = consumer.consumeAll(Subscription(Topic(topic), name, None))
             var status = 204
             var messageStr = ""
             o.map { t ->
@@ -78,6 +61,7 @@ class Server(argv: Args) : AutoCloseable {
     private val attachmentKey = AttachmentKey.create(Subscription::class.java)
     private val sseH = Handlers.serverSentEvents { connection, lastEventId ->
         connection.queryParameters["topic"]?.map { topic ->
+            val name = SubscriptionName(connection.queryParameters["sname"]?.first!!)
             // store the subscription metadata (topic, callback)
             val cb: (Msg) -> Boolean = { msg ->
                 try {
@@ -90,12 +74,11 @@ class Server(argv: Args) : AutoCloseable {
                     false
                 }
             }
+            val subscription = Subscription(Topic(topic), name, Some(cb))
             // 1st time only
             if (lastEventId != null && lastEventId != "-1")
-                consumer.consume(topic, lastEventId, cb)
-            connection.putAttachment(
-                attachmentKey,
-                Subscription(topic, cb))
+                consumer.consume(subscription, Some(Id(lastEventId)))
+            connection.putAttachment(attachmentKey, subscription)
 
             connection.addCloseTask {
                 connection.removeAttachment(attachmentKey)
@@ -125,7 +108,7 @@ class Server(argv: Args) : AutoCloseable {
             sseH.connections.forEach { connection ->
                 if (connection.isOpen) {
                     val sub = connection.getAttachment(attachmentKey)
-                    if (sub != null) consumer.consume(sub.topic, sub.cb)
+                    if (sub != null) consumer.consume(sub, None)
                 }
             }
         }, 0, 1000, TimeUnit.MILLISECONDS)

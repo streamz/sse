@@ -1,5 +1,8 @@
 package io.streamz.sse.msg.impl
 
+import arrow.core.None
+import arrow.core.Option
+import arrow.core.Some
 import io.streamz.sse.msg.*
 import org.apache.pulsar.client.api.MessageId
 import org.apache.pulsar.client.api.PulsarClient
@@ -46,27 +49,23 @@ object Pulsar {
 
             val consumers = HashMap<String, PulsarConsumer<String>>()
 
-            override fun consume(
-                topic: String,
-                from: Optional<Id>):
-                Optional<Pair<List<Msg>, (Boolean) -> Unit>> {
-                val c = consumers.getOrPut(topic) { consumer(topic) }
+            override fun consumeAll(s: Subscription, from: Option<Id>):
+                Option<Pair<List<Msg>, (Boolean) -> Unit>> {
+                val c = consumers.getOrPut(s.toString()) { pulsarConsumer(s) }
                 from.map { f -> seek(c, f) }
-                val t = c.receive(0, TimeUnit.MILLISECONDS) ?: return Optional.empty()
+                val t = c.receive(0, TimeUnit.MILLISECONDS) ?: return None
                 val m = listOf(Msg(mid2id(t.messageId), t.value))
-                return Optional.of(
-                    Pair(m, { b -> if (b) c.acknowledge(t.messageId) }))
+                return Some(Pair(m, { b -> if (b) c.acknowledge(t.messageId) }))
             }
 
-            override fun consume(
-                topic: String,
-                from: Optional<Id>,
-                cb: (value: Msg) -> Boolean) {
-                val c = consumers.getOrPut(topic) { consumer(topic) }
+            override fun consume(s: Subscription, from: Option<Id>) {
+                val c = consumers.getOrPut(s.toString()) { pulsarConsumer(s) }
                 from.map { f -> seek(c, f) }
                 val t = c.receive(0, TimeUnit.MILLISECONDS) ?: return
-                if (cb(Msg(mid2id(t.messageId), t.value)))
-                    c.acknowledge(t.messageId)
+                s.cb.fold({Unit}){
+                    if (it(Msg(mid2id(t.messageId), t.value)))
+                        c.acknowledge(t.messageId)
+                }
             }
 
             override fun close() {
@@ -75,11 +74,11 @@ object Pulsar {
                 pulsar.shutdown()
             }
 
-            private fun consumer(topic: String): PulsarConsumer<String> {
+            private fun pulsarConsumer(s: Subscription): PulsarConsumer<String> {
                 return pulsar
                     .newConsumer(Schema.STRING)
-                    .subscriptionName("default")
-                    .topic(topic)
+                    .subscriptionName(s.name.value)
+                    .topic(s.topic.value)
                     .subscribe()
             }
 

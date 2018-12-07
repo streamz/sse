@@ -22,6 +22,10 @@ class Args(parser: ArgParser) {
     val lastEventId by parser
         .storing("-f", "--from", help = "from last event id")
         .default("-1")
+
+    val subscriptionName by parser
+        .storing("-n", "--name", help = "topic subscription name")
+        .default("default")
 }
 
 fun main(args: Array<String>) = mainBody {
@@ -49,14 +53,12 @@ fun main(args: Array<String>) = mainBody {
             println("lastEventId: ${me?.lastEventId}")
             println("---")
         }
-    }, URI(argv.url + "?topic=${argv.topic}"))
-        .connectionErrorHandler(object: ConnectionErrorHandler {
-            override fun onConnectionError(t: Throwable?): ConnectionErrorHandler.Action {
-                println(t?.message)
-                running.set(false)
-                return ConnectionErrorHandler.Action.SHUTDOWN
-            }
-        }).build()
+    }, URI(argv.url + "?topic=${argv.topic}&sname=${argv.subscriptionName}"))
+        .connectionErrorHandler { t ->
+            println(t?.message)
+            running.set(false)
+            ConnectionErrorHandler.Action.SHUTDOWN
+        }.build()
 
     source.setLastEventId(argv.lastEventId)
     source.start()
